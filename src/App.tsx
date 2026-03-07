@@ -41,14 +41,11 @@ export default function App() {
   const [prevHandIds, setPrevHandIds] = useState<string[]>([]);
   const [lastDrawnTileId, setLastDrawnTileId] = useState<string | null>(null);
   const [isScoreboardOpen, setIsScoreboardOpen] = useState(false);
-  const [touchStartPos, setTouchStartPos] = useState<{ x: number, y: number } | null>(null);
-  const [longPressTimer, setLongPressTimer] = useState<any>(null);
-  const [lastTapTime, setLastTapTime] = useState(0);
-  const [movingTileIndex, setMovingTileIndex] = useState<number | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isCheckingProfile, setIsCheckingProfile] = useState(false);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [moveSourceIndex, setMoveSourceIndex] = useState<number | null>(null);
   const [initialTeam1Score, setInitialTeam1Score] = useState<number>(0);
   const [initialTeam2Score, setInitialTeam2Score] = useState<number>(0);
 
@@ -196,6 +193,9 @@ export default function App() {
       });
       newSocket.on('error', (msg: string) => {
         alert(msg);
+        setIsJoined(false);
+        setRoomCode(null);
+        setView('lobby');
       });
       newSocket.on('gameMessage', (msg: string) => {
         setMessages(prev => [...prev, msg]);
@@ -360,6 +360,21 @@ export default function App() {
     }
   };
 
+  const handleTileClick = (index: number) => {
+    if (moveSourceIndex === null) {
+      if (me?.handGrid[index]) {
+        setMoveSourceIndex(index);
+      }
+    } else {
+      if (moveSourceIndex === index) {
+        setMoveSourceIndex(null);
+      } else {
+        handleMoveTile(moveSourceIndex, index);
+        setMoveSourceIndex(null);
+      }
+    }
+  };
+
   const handleMoveTile = (fromIndex: number, toIndex: number) => {
     if (roomCode) socket?.emit('moveTileInGrid', { roomCode, fromIndex, toIndex });
   };
@@ -424,28 +439,17 @@ export default function App() {
   const handleToggleTileSelection = (tileId: string) => {
     if (stagedTileIds.includes(tileId)) return;
     
-    // Unified selection for mobile: tapping adds to set selection
-    // If only one is selected, it also acts as the "selected tile" for discard/add
-    if (window.innerWidth < 768) {
-      setSelectedForSet(prev => {
-        const isSelected = prev.includes(tileId);
-        const next = isSelected ? prev.filter(id => id !== tileId) : [...prev, tileId];
-        
-        if (next.length === 1) {
-          setSelectedTileId(next[0]);
-        } else {
-          setSelectedTileId(null);
-        }
-        return next;
-      });
-      return;
-    }
-
-    if (selectedTileId === tileId) {
-      setSelectedTileId(null);
-    } else {
-      setSelectedTileId(tileId);
-    }
+    setSelectedForSet(prev => {
+      const isSelected = prev.includes(tileId);
+      const next = isSelected ? prev.filter(id => id !== tileId) : [...prev, tileId];
+      
+      if (next.length === 1) {
+        setSelectedTileId(next[0]);
+      } else {
+        setSelectedTileId(null);
+      }
+      return next;
+    });
   };
 
   const handleToggleForSet = (tileId: string) => {
@@ -512,8 +516,8 @@ export default function App() {
 
   if (view === 'login') {
     return (
-      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-neutral-800 border border-white/10 rounded-[32px] p-10 text-center shadow-2xl">
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="max-w-md w-full bg-neutral-800 border border-white/10 rounded-[32px] p-8 md:p-10 text-center shadow-2xl my-8">
           <Layers className="text-emerald-500 w-16 h-16 mx-auto mb-6" />
           <h1 className="text-3xl font-display font-bold text-white mb-2">JANA GROUP OKEY</h1>
           <p className="text-neutral-400 mb-10">Sign in to start playing with your friends online.</p>
@@ -555,8 +559,8 @@ export default function App() {
 
   if (view === 'profile') {
     return (
-      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-neutral-800 border border-white/10 rounded-[32px] p-10 text-center shadow-2xl">
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="max-w-md w-full bg-neutral-800 border border-white/10 rounded-[32px] p-8 md:p-10 text-center shadow-2xl my-8">
           <User className="text-emerald-500 w-16 h-16 mx-auto mb-6" />
           <h1 className="text-3xl font-display font-bold text-white mb-2">Set Your Name</h1>
           <p className="text-neutral-400 mb-10">Choose a username. You won't be able to change it later!</p>
@@ -586,8 +590,8 @@ export default function App() {
 
   if (!isJoined) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-950 p-4">
-        <div className="w-full max-w-md space-y-8">
+      <div className="min-h-screen flex items-center justify-center bg-neutral-950 p-4 overflow-y-auto">
+        <div className="w-full max-w-md space-y-8 my-8">
           <div className="text-center">
             <h1 className="text-5xl font-display font-bold text-white tracking-tighter mb-2">OKEY PRO</h1>
             <p className="text-neutral-500 uppercase tracking-widest text-xs font-black">Multiplayer Arena</p>
@@ -1390,67 +1394,37 @@ export default function App() {
           </div>
 
           <div 
-            className="grid grid-rows-2 gap-1 md:gap-2 p-2 md:p-4 bg-black/20 rounded-2xl md:rounded-3xl border border-white/5 overflow-x-auto no-scrollbar min-h-[160px] md:min-h-[260px]"
-            style={{ gridTemplateColumns: 'repeat(15, minmax(var(--tile-width), 1fr))' }}
+            className="grid grid-cols-8 md:grid-cols-15 gap-1 md:gap-2 p-2 md:p-4 bg-black/20 rounded-2xl md:rounded-3xl border border-white/5 overflow-y-auto md:overflow-x-auto no-scrollbar max-h-[400px] md:max-h-none"
           >
             {me?.handGrid.map((tile, index) => (
               <div
-                key={index}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  const fromIndex = parseInt(e.dataTransfer.getData('fromIndex'));
-                  handleMoveTile(fromIndex, index);
+                key={`hand-slot-${index}`}
+                onClick={() => handleTileClick(index)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (tile) handleToggleForSet(tile.id);
                 }}
-                onClick={() => {
-                  if (movingTileIndex !== null && !tile) {
-                    handleMoveTile(movingTileIndex, index);
-                    setMovingTileIndex(null);
-                  }
-                }}
-                className={`tile-slot rounded-md md:rounded-lg border border-dashed border-white/5 flex items-center justify-center transition-all bg-white/5 hover:bg-white/10 ${
-                  movingTileIndex !== null && !tile ? 'bg-emerald-500/10 border-emerald-500/30 cursor-pointer ring-2 ring-emerald-500/20' : ''
+                className={`relative aspect-[2/3] cursor-pointer transition-all rounded-lg ${
+                  moveSourceIndex === index ? 'ring-4 ring-emerald-500 scale-105 z-10 shadow-lg shadow-emerald-500/20' : 'hover:bg-white/5'
                 }`}
               >
-                {tile && (
-                  <TileView
-                    tile={tile}
-                    size={window.innerWidth < 768 ? 'sm' : 'md'}
-                    selected={selectedTileId === tile.id}
-                    initial={lastDrawnTileId === tile.id ? { y: 100, opacity: 0, scale: 0.5 } : { scale: 0.8, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1, scale: 1 }}
-                    transition={lastDrawnTileId === tile.id ? { type: "spring", damping: 12, stiffness: 150 } : {}}
+                {tile ? (
+                  <TileView 
+                    tile={tile} 
+                    size="sm"
+                    selected={selectedTileId === tile.id || selectedForSet.includes(tile.id)}
+                    className="w-full h-full"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (movingTileIndex !== null) {
-                        setMovingTileIndex(null);
-                        return;
-                      }
-                      const now = Date.now();
-                      if (now - lastTapTime < 300) {
-                        // Double tap
-                        handleToggleForSet(tile.id);
-                        setLastTapTime(0);
-                      } else {
-                        handleToggleTileSelection(tile.id);
-                        setLastTapTime(now);
-                      }
+                      handleTileClick(index);
                     }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      handleToggleForSet(tile.id);
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleTileSelection(tile.id);
                     }}
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData('fromIndex', index.toString());
-                    }}
-                    className={`cursor-pointer transition-all duration-200 touch-none ${
-                      selectedForSet.includes(tile.id) ? 'ring-2 md:ring-4 ring-blue-500' : ''
-                    } ${stagedTileIds.includes(tile.id) ? 'opacity-40 grayscale' : ''}`}
                   >
-                    {selectedForSet.includes(tile.id) && (
-                      <div className="absolute -top-1 -right-1 md:-top-2 md:-right-2 bg-blue-500 text-white rounded-full p-0.5 md:p-1 shadow-lg z-10">
-                        <Layers size={8} className="md:w-2.5 md:h-2.5" />
-                      </div>
+                    {lastDrawnTileId === tile.id && (
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white animate-ping" />
                     )}
                     {stagedTileIds.includes(tile.id) && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-md md:rounded-lg z-10">
@@ -1458,6 +1432,10 @@ export default function App() {
                       </div>
                     )}
                   </TileView>
+                ) : (
+                  <div className="w-full h-full border border-dashed border-white/10 rounded-lg flex items-center justify-center">
+                    <div className="w-1 h-1 bg-white/5 rounded-full" />
+                  </div>
                 )}
               </div>
             ))}
