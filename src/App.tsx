@@ -31,7 +31,6 @@ export default function App() {
   const [playerName, setPlayerName] = useState('');
   const [team, setTeam] = useState<1 | 2>(1);
   const [isJoined, setIsJoined] = useState(false);
-  const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [selectedForSet, setSelectedForSet] = useState<string[]>([]);
   const [stagedSets, setStagedSets] = useState<Tile[][]>([]);
   const [roomCode, setRoomCode] = useState<string | null>(null);
@@ -45,6 +44,7 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isCheckingProfile, setIsCheckingProfile] = useState(false);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [socketId, setSocketId] = useState<string | null>(null);
   const [initialTeam1Score, setInitialTeam1Score] = useState<number>(0);
   const [initialTeam2Score, setInitialTeam2Score] = useState<number>(0);
 
@@ -98,6 +98,10 @@ export default function App() {
     }
   };
 
+  const selectedTileId = useMemo(() => {
+    return selectedForSet.length === 1 ? selectedForSet[0] : null;
+  }, [selectedForSet]);
+
   const stagedTileIds = useMemo(() => stagedSets.flat().map(t => t.id), [stagedSets]);
 
   const stagedPoints = useMemo(() => {
@@ -131,13 +135,15 @@ export default function App() {
       setSocket(newSocket);
 
       newSocket.on('connect', () => {
-        console.log("Socket connected!");
+        console.log("Socket connected!", newSocket.id);
         setIsSocketConnected(true);
+        setSocketId(newSocket.id || null);
       });
 
       newSocket.on('disconnect', () => {
         console.log("Socket disconnected");
         setIsSocketConnected(false);
+        setSocketId(null);
       });
 
       newSocket.on('connect_error', (err) => {
@@ -209,8 +215,8 @@ export default function App() {
   }, []);
 
   const me = useMemo(() => {
-    return gameState?.players.find(p => p.id === socket?.id);
-  }, [gameState, socket]);
+    return gameState?.players.find(p => p.id === socketId);
+  }, [gameState, socketId]);
 
   useEffect(() => {
     if (me) {
@@ -230,8 +236,8 @@ export default function App() {
   }, [me?.handGrid]);
 
   const opponents = useMemo(() => {
-    if (!gameState || !socket) return [];
-    const myIndex = gameState.players.findIndex(p => p.id === socket.id);
+    if (!gameState || !socketId) return [];
+    const myIndex = gameState.players.findIndex(p => p.id === socketId);
     if (myIndex === -1) return gameState.players;
     
     // Reorder players so "me" is at the bottom, and others are distributed
@@ -282,10 +288,13 @@ export default function App() {
   };
 
   const isMyTurn = useMemo(() => {
-    return gameState?.currentTurnPlayerId === socket?.id;
-  }, [gameState, socket]);
+    return gameState?.currentTurnPlayerId === socketId;
+  }, [gameState, socketId]);
 
   useEffect(() => {
+    if (!isMyTurn) {
+      setSelectedForSet([]);
+    }
     if (isMyTurn) {
       // Play a subtle "pling" sound
       try {
@@ -355,7 +364,7 @@ export default function App() {
         return;
       }
       socket?.emit('discardTile', { roomCode, tileId: selectedTileId });
-      setSelectedTileId(null);
+      setSelectedForSet([]);
     }
   };
 
@@ -367,12 +376,6 @@ export default function App() {
       setSelectedForSet(prev => {
         const isSelected = prev.includes(tile.id);
         const next = isSelected ? prev.filter(id => id !== tile.id) : [...prev, tile.id];
-        
-        if (next.length === 1) {
-          setSelectedTileId(next[0]);
-        } else {
-          setSelectedTileId(null);
-        }
         return next;
       });
     } else {
@@ -383,7 +386,6 @@ export default function App() {
         if (fromIndex !== undefined && fromIndex !== -1) {
           handleMoveTile(fromIndex, index);
           setSelectedForSet([]);
-          setSelectedTileId(null);
         }
       }
     }
@@ -490,7 +492,7 @@ export default function App() {
         const newTiles = [...set.tiles, tile];
         if (isValidOkeySet(newTiles)) {
           socket?.emit('addToSet', { roomCode, setId, tileId: selectedTileId });
-          setSelectedTileId(null);
+          setSelectedForSet([]);
         } else {
           alert("This tile cannot be added to this set!");
         }
@@ -501,7 +503,7 @@ export default function App() {
   const handleReplaceJoker = (setId: string, tileId: string, jokerId: string) => {
     if (roomCode) {
       socket?.emit('replaceJoker', { roomCode, setId, tileId, jokerId });
-      setSelectedTileId(null);
+      setSelectedForSet([]);
     }
   };
 
@@ -1579,8 +1581,8 @@ function TileView({ tile, size = 'md', selected = false, className, children, ..
   const sizeClasses = {
     xs: 'w-6 h-9 text-[10px]',
     sm: 'w-10 h-14 text-sm',
-    md: 'w-16 h-24 text-2xl',
-    lg: 'w-20 h-28 text-3xl',
+    md: 'w-20 h-28 text-2xl',
+    lg: 'w-24 h-32 text-3xl',
   };
 
   const colorClasses = {
@@ -1614,7 +1616,7 @@ function TileView({ tile, size = 'md', selected = false, className, children, ..
         </div>
       ) : (
         <span className={`font-display font-black leading-none ${colorClasses[tile.color]} ${
-          size === 'sm' ? 'text-lg' : size === 'md' ? 'text-3xl' : ''
+          size === 'sm' ? 'text-lg' : size === 'md' ? 'text-4xl' : ''
         }`}>
           {tile.value}
         </span>
