@@ -18,7 +18,7 @@ db.exec(`
   )
 `);
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 function getLocalIp() {
   const interfaces = os.networkInterfaces();
@@ -700,4 +700,3 @@ async function startServer() {
 }
 
 startServer();
- 
