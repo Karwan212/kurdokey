@@ -1177,9 +1177,9 @@ export default function App() {
 
         {/* Center Table */}
         <div className="flex-1 flex items-center justify-center p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-12 items-center">
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-4 md:gap-12 items-center">
             {/* Draw Deck */}
-            <div className="flex flex-col items-center gap-2 md:gap-3 order-2 md:order-1">
+            <div className="flex flex-col items-center gap-2 md:gap-3 order-1">
               <span className="text-[8px] md:text-[10px] font-bold text-white/40 uppercase tracking-widest">Deck</span>
               <div className="relative flex flex-col items-center">
                 <button 
@@ -1217,7 +1217,7 @@ export default function App() {
             </div>
 
             {/* Discard Pile */}
-            <div className="flex flex-col items-center gap-2 md:gap-3 order-1 md:order-2">
+            <div className="flex flex-col items-center gap-2 md:gap-3 order-2">
               <span className="text-[8px] md:text-[10px] font-bold text-white/40 uppercase tracking-widest">Discard</span>
               <div className="relative">
                 {gameState.discardPile.length > 0 ? (
@@ -1411,7 +1411,7 @@ export default function App() {
           </div>
 
           <div 
-            className="grid grid-cols-8 md:grid-cols-15 gap-1 md:gap-2 p-2 md:p-4 bg-black/20 rounded-2xl md:rounded-3xl border border-white/5 overflow-y-auto md:overflow-x-auto no-scrollbar max-h-[400px] md:max-h-none"
+            className="grid grid-cols-10 md:grid-cols-15 gap-1 md:gap-2 p-2 md:p-4 bg-black/20 rounded-2xl md:rounded-3xl border border-white/5 overflow-y-auto md:overflow-x-auto no-scrollbar max-h-[400px] md:max-h-none"
           >
             {me?.handGrid.map((tile, index) => (
               <div
@@ -1455,9 +1455,7 @@ export default function App() {
               </div>
             ))}
           </div>
-          <p className="text-center text-[8px] text-neutral-500 font-medium uppercase tracking-widest sm:hidden">
-            Drag to Move • Tap to Select • Select 1 to Discard • Select 3+ to Stage
-          </p>
+          
         </div>
       </div>
 
