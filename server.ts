@@ -584,18 +584,23 @@ async function startServer() {
       const room = rooms.get(roomCode);
       if (!room) return;
 
-      room.players = room.players.filter(p => p.id !== socket.id);
-      socket.leave(roomCode);
-      
-      if (room.players.length === 0) {
-        rooms.delete(roomCode);
+      const player = room.players.find(p => p.id === socket.id);
+      if (!player) return;
+
+      if (room.status === 'playing') {
+        player.disconnected = true;
+        io.to(roomCode).emit("gameMessage", `${player.name} has left the game (disconnected).`);
       } else {
-        // If host left, assign new host
-        if (!room.players.some(p => p.isHost)) {
+        room.players = room.players.filter(p => p.id !== socket.id);
+        if (room.players.length === 0) {
+          rooms.delete(roomCode);
+        } else if (!room.players.some(p => p.isHost)) {
           room.players[0].isHost = true;
         }
-        io.to(roomCode).emit("gameState", room);
       }
+      
+      socket.leave(roomCode);
+      io.to(roomCode).emit("gameState", room);
       socket.emit("exitedRoom");
     });
 
