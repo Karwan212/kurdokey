@@ -1146,9 +1146,6 @@ export default function App() {
                       }`}>
                         T{opp.team}
                       </span>
-                      {opp.isKonkan && (
-                        <span className="text-[8px] font-bold px-1 rounded bg-amber-500/20 text-amber-400">KONKAN</span>
-                      )}
                       <p className="text-[8px] md:text-[10px] text-neutral-400 uppercase tracking-tighter">{opp.handGrid.filter(t => t !== null).length} Tiles</p>
                     </div>
                   </div>
