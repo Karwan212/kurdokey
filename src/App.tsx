@@ -23,7 +23,7 @@ import { isValidOkeySet, calculateSetPoints, calculateHandPenalty } from './util
 import { auth, googleProvider } from './lib/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://production-us-west2.railway-registry.com/";
 
 export default function App() {
   const [socket, setSocket] = useState<any>(null);
