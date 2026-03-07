@@ -23,7 +23,7 @@ import { isValidOkeySet, calculateSetPoints, calculateHandPenalty } from './util
 import { auth, googleProvider } from './lib/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://production-us-west2.railway-registry.com/";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "https://kurdokey.onrender.com/";
 
 export default function App() {
   const [socket, setSocket] = useState<any>(null);
@@ -47,19 +47,27 @@ export default function App() {
   const [movingTileIndex, setMovingTileIndex] = useState<number | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isCheckingProfile, setIsCheckingProfile] = useState(false);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [initialTeam1Score, setInitialTeam1Score] = useState<number>(0);
   const [initialTeam2Score, setInitialTeam2Score] = useState<number>(0);
 
   useEffect(() => {
     if (!auth) return;
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      console.log("Auth state changed:", firebaseUser?.uid);
       setUser(firebaseUser);
       if (firebaseUser) {
         if (socket) {
+          console.log("Emitting getUsername for:", firebaseUser.uid);
+          setIsCheckingProfile(true);
           socket.emit('getUsername', firebaseUser.uid);
+        } else {
+          console.log("User logged in but socket not ready yet");
         }
       } else {
         setView('login');
+        setIsCheckingProfile(false);
       }
     });
     return () => unsubscribe();
@@ -118,8 +126,28 @@ export default function App() {
         disconnect: () => ws.close()
       } as any);
     } else {
-      const newSocket = io(SOCKET_URL);
+      console.log("Connecting to socket at:", SOCKET_URL);
+      const newSocket = io(SOCKET_URL, {
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5
+      });
+      
       setSocket(newSocket);
+
+      newSocket.on('connect', () => {
+        console.log("Socket connected!");
+        setIsSocketConnected(true);
+      });
+
+      newSocket.on('disconnect', () => {
+        console.log("Socket disconnected");
+        setIsSocketConnected(false);
+      });
+
+      newSocket.on('connect_error', (err) => {
+        console.error("Socket connection error:", err);
+      });
+
       newSocket.on('gameState', (state: GameState) => {
         setGameState(state);
       });
@@ -142,6 +170,8 @@ export default function App() {
         setView('lobby');
       });
       newSocket.on('usernameResult', ({ uid, username }: { uid: string, username: string | null }) => {
+        console.log("Received usernameResult:", username);
+        setIsCheckingProfile(false);
         if (username) {
           setPlayerName(username);
           setView('lobby');
@@ -149,6 +179,7 @@ export default function App() {
           // Try to rejoin if we have a room code
           const savedRoomCode = localStorage.getItem('okey_room_code');
           if (savedRoomCode) {
+            console.log("Attempting to rejoin room:", savedRoomCode);
             newSocket.emit('joinRoom', { roomCode: savedRoomCode, uid, name: username, team: 1 });
           }
         } else {
@@ -487,14 +518,36 @@ export default function App() {
           <h1 className="text-3xl font-display font-bold text-white mb-2">JANA GROUP OKEY</h1>
           <p className="text-neutral-400 mb-10">Sign in to start playing with your friends online.</p>
           
-          <button 
-            onClick={handleGoogleSignIn}
-            disabled={isLoggingIn}
-            className="w-full py-4 bg-white text-black rounded-2xl font-bold transition-all hover:bg-neutral-200 flex items-center justify-center gap-3 disabled:opacity-50 shadow-lg"
-          >
-            <LogIn size={20} />
-            {isLoggingIn ? 'Signing in...' : 'Sign in with Google'}
-          </button>
+          <div className="space-y-4">
+            {!isSocketConnected && (
+              <div className="text-amber-500 text-xs font-bold animate-pulse mb-4">
+                Connecting to server...
+              </div>
+            )}
+            
+            {user && isCheckingProfile ? (
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-white font-medium">Loading your profile...</p>
+              </div>
+            ) : (
+              <button 
+                onClick={handleGoogleSignIn}
+                disabled={isLoggingIn || !isSocketConnected}
+                className="w-full py-4 bg-white text-black rounded-2xl font-bold transition-all hover:bg-neutral-200 flex items-center justify-center gap-3 disabled:opacity-50 shadow-lg"
+              >
+                <LogIn size={20} />
+                {isLoggingIn ? 'Signing in...' : 'Sign in with Google'}
+              </button>
+            )}
+
+            {user && !isCheckingProfile && !isSocketConnected && (
+              <p className="text-red-400 text-xs mt-4">
+                Logged in as {user.email}, but server is not responding. 
+                Please check your internet or refresh.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     );
