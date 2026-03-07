@@ -19,11 +19,11 @@ import {
   LogOut
 } from 'lucide-react';
 import { GameState, Player, Tile, Color, OpenSet } from './types';
-import { isValidOkeySet, calculateSetPoints, calculateHandPenalty } from './utils';
+import { isValidOkeySet, calculateSetPoints, calculateHandPenalty, getJokerReplacement } from './utils';
 import { auth, googleProvider } from './lib/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "https://kurdokey.onrender.com/";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "";
 
 export default function App() {
   const [socket, setSocket] = useState<any>(null);
@@ -493,7 +493,7 @@ export default function App() {
 
   const handleAddToSet = (setId: string) => {
     if (selectedTileId && gameState && me && roomCode) {
-      if (!me.hasOpened) {
+      if (!me.hasOpened && !me.isKonkan) {
         const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
         const teammateHasOpened = teammate?.hasOpened || false;
         const minPoints = teammateHasOpened ? 61 : 81;
@@ -504,6 +504,19 @@ export default function App() {
       const currentHand = me.handGrid.filter(t => t !== null) as Tile[];
       const tile = currentHand.find(t => t.id === selectedTileId);
       if (set && tile) {
+        // Prioritize Joker replacement if possible
+        const jokerToReplace = set.tiles.find(t => {
+          if (!t.isFakeJoker) return false;
+          const replacements = getJokerReplacement(set.tiles, t.id);
+          return replacements.some(r => r.value === tile.value && r.color === tile.color);
+        });
+
+        if (jokerToReplace) {
+          handleReplaceJoker(set.id, tile.id, jokerToReplace.id);
+          return;
+        }
+
+        // Otherwise try adding to set
         const newTiles = [...set.tiles, tile];
         if (isValidOkeySet(newTiles)) {
           socket?.emit('addToSet', { roomCode, setId, tileId: selectedTileId });
@@ -879,6 +892,29 @@ export default function App() {
                   <X size={20} />
                 </button>
               </div>
+
+              {/* Konkan Button in Mobile Sidebar */}
+              <div className="mb-2">
+                {me && !me.hasOpened && !me.isKonkan && gameState.status === 'playing' && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Are you sure you want to enter KONKAN mode? You won't be able to open normally!")) {
+                        socket?.emit('enterKonkan', roomCode);
+                      }
+                    }}
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-black px-4 py-3 rounded-xl font-bold text-sm transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
+                  >
+                    <Layers size={16} />
+                    ENTER KONKAN
+                  </button>
+                )}
+                {me?.isKonkan && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+                    <Layers size={16} />
+                    KONKAN MODE ACTIVE
+                  </div>
+                )}
+              </div>
               
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl text-center">
@@ -995,6 +1031,29 @@ export default function App() {
             <Trophy className="text-amber-500 w-5 h-5" />
             <h3 className="text-sm font-bold text-white uppercase tracking-widest">Scoreboard</h3>
           </div>
+
+          {/* Konkan Button in Desktop Sidebar */}
+          <div className="mb-2">
+            {me && !me.hasOpened && !me.isKonkan && gameState.status === 'playing' && (
+              <button
+                onClick={() => {
+                  if (confirm("Are you sure you want to enter KONKAN mode? You won't be able to open normally!")) {
+                    socket?.emit('enterKonkan', roomCode);
+                  }
+                }}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
+              >
+                <Layers size={14} />
+                ENTER KONKAN
+              </button>
+            )}
+            {me?.isKonkan && (
+              <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2">
+                <Layers size={14} />
+                KONKAN ACTIVE
+              </div>
+            )}
+          </div>
           
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl text-center">
@@ -1046,29 +1105,6 @@ export default function App() {
                 {msg}
               </div>
             ))}
-          </div>
-
-          {/* Konkan Button Overlay */}
-          <div className="absolute top-15 right-4 z-30">
-            {me && !me.hasOpened && !me.isKonkan && gameState.status === 'playing' && (
-              <button
-                onClick={() => {
-                  if (confirm("Are you sure you want to enter KONKAN mode? You won't be able to open normally!")) {
-                    socket?.emit('enterKonkan', roomCode);
-                  }
-                }}
-                className="bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 rounded-xl font-bold text-sm transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2"
-              >
-                <Layers size={16} />
-                ENTER KONKAN
-              </button>
-            )}
-            {me?.isKonkan && (
-              <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2">
-                <Layers size={16} />
-                KONKAN MODE ACTIVE
-              </div>
-            )}
           </div>
 
           {/* Opponents */}
