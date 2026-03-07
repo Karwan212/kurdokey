@@ -635,8 +635,8 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-neutral-950 p-4 overflow-y-auto">
         <div className="w-full max-w-md space-y-8 my-8">
           <div className="text-center">
-            <h1 className="text-5xl font-display font-bold text-white tracking-tighter mb-2">OKEY PRO</h1>
-            <p className="text-neutral-500 uppercase tracking-widest text-xs font-black">Multiplayer Arena</p>
+            <h1 className="text-5xl font-display font-bold text-white tracking-tighter mb-2">KURD OKEY</h1>
+            <p className="text-neutral-500 uppercase tracking-widest text-xs font-black">Made by Karwan313</p>
           </div>
 
           <div className="bg-neutral-900 border border-white/5 rounded-3xl p-8 shadow-2xl space-y-6">
