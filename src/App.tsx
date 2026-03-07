@@ -45,7 +45,6 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isCheckingProfile, setIsCheckingProfile] = useState(false);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
-  const [moveSourceIndex, setMoveSourceIndex] = useState<number | null>(null);
   const [initialTeam1Score, setInitialTeam1Score] = useState<number>(0);
   const [initialTeam2Score, setInitialTeam2Score] = useState<number>(0);
 
@@ -360,17 +359,32 @@ export default function App() {
     }
   };
 
-  const handleTileClick = (index: number) => {
-    if (moveSourceIndex === null) {
-      if (me?.handGrid[index]) {
-        setMoveSourceIndex(index);
-      }
+  const handleHandSlotClick = (index: number) => {
+    const tile = me?.handGrid[index];
+    if (tile) {
+      if (stagedTileIds.includes(tile.id)) return;
+      
+      setSelectedForSet(prev => {
+        const isSelected = prev.includes(tile.id);
+        const next = isSelected ? prev.filter(id => id !== tile.id) : [...prev, tile.id];
+        
+        if (next.length === 1) {
+          setSelectedTileId(next[0]);
+        } else {
+          setSelectedTileId(null);
+        }
+        return next;
+      });
     } else {
-      if (moveSourceIndex === index) {
-        setMoveSourceIndex(null);
-      } else {
-        handleMoveTile(moveSourceIndex, index);
-        setMoveSourceIndex(null);
+      // Empty slot - move if exactly one tile is selected
+      if (selectedForSet.length === 1) {
+        const selectedId = selectedForSet[0];
+        const fromIndex = me?.handGrid.findIndex(t => t?.id === selectedId);
+        if (fromIndex !== undefined && fromIndex !== -1) {
+          handleMoveTile(fromIndex, index);
+          setSelectedForSet([]);
+          setSelectedTileId(null);
+        }
       }
     }
   };
@@ -439,17 +453,10 @@ export default function App() {
   const handleToggleTileSelection = (tileId: string) => {
     if (stagedTileIds.includes(tileId)) return;
     
-    setSelectedForSet(prev => {
-      const isSelected = prev.includes(tileId);
-      const next = isSelected ? prev.filter(id => id !== tileId) : [...prev, tileId];
-      
-      if (next.length === 1) {
-        setSelectedTileId(next[0]);
-      } else {
-        setSelectedTileId(null);
-      }
-      return next;
-    });
+    const tileIndex = me?.handGrid.findIndex(t => t?.id === tileId);
+    if (tileIndex !== undefined && tileIndex !== -1) {
+      handleHandSlotClick(tileIndex);
+    }
   };
 
   const handleToggleForSet = (tileId: string) => {
@@ -1399,28 +1406,24 @@ export default function App() {
             {me?.handGrid.map((tile, index) => (
               <div
                 key={`hand-slot-${index}`}
-                onClick={() => handleTileClick(index)}
+                onClick={() => handleHandSlotClick(index)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   if (tile) handleToggleForSet(tile.id);
                 }}
                 className={`relative aspect-[2/3] cursor-pointer transition-all rounded-lg ${
-                  moveSourceIndex === index ? 'ring-4 ring-emerald-500 scale-105 z-10 shadow-lg shadow-emerald-500/20' : 'hover:bg-white/5'
+                  selectedForSet.length === 1 && selectedForSet[0] === tile?.id ? 'ring-4 ring-emerald-500 scale-105 z-10 shadow-lg shadow-emerald-500/20' : 'hover:bg-white/5'
                 }`}
               >
                 {tile ? (
                   <TileView 
                     tile={tile} 
-                    size="sm"
-                    selected={selectedTileId === tile.id || selectedForSet.includes(tile.id)}
+                    size={window.innerWidth < 768 ? 'sm' : 'md'}
+                    selected={selectedForSet.includes(tile.id)}
                     className="w-full h-full"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleTileClick(index);
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleTileSelection(tile.id);
+                      handleHandSlotClick(index);
                     }}
                   >
                     {lastDrawnTileId === tile.id && (
@@ -1433,8 +1436,10 @@ export default function App() {
                     )}
                   </TileView>
                 ) : (
-                  <div className="w-full h-full border border-dashed border-white/10 rounded-lg flex items-center justify-center">
-                    <div className="w-1 h-1 bg-white/5 rounded-full" />
+                  <div className={`w-full h-full border border-dashed rounded-lg flex items-center justify-center transition-colors ${
+                    selectedForSet.length === 1 ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10'
+                  }`}>
+                    <div className={`w-1 h-1 rounded-full ${selectedForSet.length === 1 ? 'bg-emerald-500/50' : 'bg-white/5'}`} />
                   </div>
                 )}
               </div>
@@ -1579,10 +1584,10 @@ function TileView({ tile, size = 'md', selected = false, className, children, ..
   };
 
   const colorClasses = {
-    red: 'text-red-500',
+    red: 'text-red-600',
     black: 'text-neutral-900',
-    blue: 'text-blue-500',
-    yellow: 'text-amber-500',
+    blue: 'text-blue-600',
+    yellow: 'text-amber-600',
     none: 'text-neutral-400',
   };
 
@@ -1597,7 +1602,7 @@ function TileView({ tile, size = 'md', selected = false, className, children, ..
       }}
       exit={{ scale: 0.8, opacity: 0 }}
       className={`${sizeClasses[size]} bg-neutral-100 rounded-lg tile-shadow flex flex-col items-center justify-center relative border shrink-0 transition-colors duration-200 ${
-        selected ? 'border-red-600 border-[3px] ring-4 ring-red-600/40' : 'border-neutral-300'
+        selected ? 'border-emerald-500 border-[3px] ring-4 ring-emerald-500/40' : 'border-neutral-300'
       } ${className || ''}`}
       {...props}
     >
@@ -1608,7 +1613,9 @@ function TileView({ tile, size = 'md', selected = false, className, children, ..
           <span className="text-[8px] font-black uppercase tracking-tighter mt-1 text-neutral-400">Joker</span>
         </div>
       ) : (
-        <span className={`font-display font-black ${colorClasses[tile.color]}`}>
+        <span className={`font-display font-black leading-none ${colorClasses[tile.color]} ${
+          size === 'sm' ? 'text-lg' : size === 'md' ? 'text-3xl' : ''
+        }`}>
           {tile.value}
         </span>
       )}
