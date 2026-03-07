@@ -29,7 +29,10 @@ export default function App() {
   const [socket, setSocket] = useState<any>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [playerName, setPlayerName] = useState('');
-  const [team, setTeam] = useState<1 | 2>(1);
+  const [team, setTeam] = useState<1 | 2>(() => {
+    const saved = localStorage.getItem('okey_team');
+    return (saved === '1' || saved === '2') ? (parseInt(saved) as 1 | 2) : 1;
+  });
   const [isJoined, setIsJoined] = useState(false);
   const [selectedForSet, setSelectedForSet] = useState<string[]>([]);
   const [stagedSets, setStagedSets] = useState<Tile[][]>([]);
@@ -39,6 +42,7 @@ export default function App() {
   const [messages, setMessages] = useState<string[]>([]);
   const [prevHandIds, setPrevHandIds] = useState<string[]>([]);
   const [lastDrawnTileId, setLastDrawnTileId] = useState<string | null>(null);
+  const [lastClick, setLastClick] = useState<{ index: number, time: number } | null>(null);
   const [isScoreboardOpen, setIsScoreboardOpen] = useState(false);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -156,12 +160,14 @@ export default function App() {
       newSocket.on('roomCreated', (code: string) => {
         setRoomCode(code);
         localStorage.setItem('okey_room_code', code);
+        localStorage.setItem('okey_team', team.toString());
         setIsJoined(true);
         setView('game');
       });
       newSocket.on('roomJoined', (code: string) => {
         setRoomCode(code);
         localStorage.setItem('okey_room_code', code);
+        localStorage.setItem('okey_team', team.toString());
         setIsJoined(true);
         setView('game');
       });
@@ -180,9 +186,12 @@ export default function App() {
           
           // Try to rejoin if we have a room code
           const savedRoomCode = localStorage.getItem('okey_room_code');
+          const savedTeam = localStorage.getItem('okey_team');
+          const teamToJoin = (savedTeam === '1' || savedTeam === '2') ? (parseInt(savedTeam) as 1 | 2) : 1;
+          
           if (savedRoomCode) {
-            console.log("Attempting to rejoin room:", savedRoomCode);
-            newSocket.emit('joinRoom', { roomCode: savedRoomCode, uid, name: username, team: 1 });
+            console.log("Attempting to rejoin room:", savedRoomCode, "Team:", teamToJoin);
+            newSocket.emit('joinRoom', { roomCode: savedRoomCode, uid, name: username, team: teamToJoin });
           }
         } else {
           setView('profile');
@@ -347,29 +356,35 @@ export default function App() {
     }
   };
 
-  const handleDiscard = () => {
-    if (selectedTileId && isMyTurn && gameState?.turnPhase === 'action' && me && roomCode) {
-      if (me.pendingDiscardId) {
-        const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
-        const teammateHasOpened = teammate?.hasOpened || false;
-        const minPoints = teammateHasOpened ? 61 : 81;
-        alert(`You picked up a discard! You must open your game (${minPoints}+ points) before discarding.`);
-        return;
-      }
-      if (me.hasPickedJokerThisTurn && !me.hasOpened) {
-        const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
-        const teammateHasOpened = teammate?.hasOpened || false;
-        const minPoints = teammateHasOpened ? 61 : 81;
-        alert(`You picked up a joker! You must open your game (${minPoints}+ points) before discarding.`);
-        return;
-      }
-      socket?.emit('discardTile', { roomCode, tileId: selectedTileId });
-      setSelectedForSet([]);
-    }
-  };
-
   const handleHandSlotClick = (index: number) => {
+    const now = Date.now();
     const tile = me?.handGrid[index];
+
+    // Double tap detection for discard
+    if (lastClick && lastClick.index === index && (now - lastClick.time) < 300) {
+      if (tile && isMyTurn && gameState?.turnPhase === 'action') {
+        // Discard logic
+        if (me.pendingDiscardId) {
+          const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
+          const teammateHasOpened = teammate?.hasOpened || false;
+          const minPoints = teammateHasOpened ? 61 : 81;
+          alert(`You picked up a discard! You must open your game (${minPoints}+ points) before discarding.`);
+        } else if (me.hasPickedJokerThisTurn && !me.hasOpened) {
+          const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
+          const teammateHasOpened = teammate?.hasOpened || false;
+          const minPoints = teammateHasOpened ? 61 : 81;
+          alert(`You picked up a joker! You must open your game (${minPoints}+ points) before discarding.`);
+        } else {
+          socket?.emit('discardTile', { roomCode, tileId: tile.id });
+          setSelectedForSet([]);
+          setLastClick(null);
+          return;
+        }
+      }
+    }
+
+    setLastClick({ index, time: now });
+
     if (tile) {
       if (stagedTileIds.includes(tile.id)) return;
       
@@ -597,6 +612,11 @@ export default function App() {
     );
   }
 
+  const handleTeamSelect = (t: 1 | 2) => {
+    setTeam(t);
+    localStorage.setItem('okey_team', t.toString());
+  };
+
   if (!isJoined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-neutral-950 p-4 overflow-y-auto">
@@ -623,7 +643,7 @@ export default function App() {
                 <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Select Team</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => setTeam(1)}
+                    onClick={() => handleTeamSelect(1)}
                     className={`py-3 rounded-xl font-bold transition-all border-2 ${
                       team === 1 ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'bg-neutral-800 border-transparent text-neutral-500'
                     }`}
@@ -631,7 +651,7 @@ export default function App() {
                     Team 1
                   </button>
                   <button
-                    onClick={() => setTeam(2)}
+                    onClick={() => handleTeamSelect(2)}
                     className={`py-3 rounded-xl font-bold transition-all border-2 ${
                       team === 2 ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-neutral-800 border-transparent text-neutral-500'
                     }`}
@@ -1379,18 +1399,6 @@ export default function App() {
                 </button>
               )}
               
-              <button 
-                onClick={handleDiscard}
-                disabled={!selectedTileId || !isMyTurn || gameState.turnPhase !== 'action'}
-                className={`px-4 md:px-6 py-2 rounded-lg md:rounded-xl font-bold text-xs md:text-sm transition-all flex items-center gap-1 md:gap-2 ${
-                  selectedTileId && isMyTurn && gameState.turnPhase === 'action'
-                    ? 'bg-red-500 hover:bg-red-400 text-white shadow-lg shadow-red-500/20'
-                    : 'bg-neutral-800 text-neutral-600 cursor-not-allowed border border-white/5'
-                }`}
-              >
-                <ArrowUpRight size={14} className="md:w-4 md:h-4" /> Discard
-              </button>
-
               {me?.handGrid.filter(t => t !== null).length === 0 && gameState.status === 'playing' && (
                 <button 
                   onClick={handleDeclareWin}
