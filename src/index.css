@@ -16,7 +16,7 @@
 }
 
 body {
-  @apply bg-neutral-100 text-neutral-900 font-sans antialiased overflow-hidden;
+  @apply bg-neutral-100 text-neutral-900 font-sans antialiased;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   -khtml-user-select: none;
