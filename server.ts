@@ -174,6 +174,19 @@ async function startServer() {
           room.currentTurnPlayerId = socket.id;
         }
         
+        if (room.firstOpenerId === oldId) {
+          room.firstOpenerId = socket.id;
+        }
+
+        if (room.kharbatVote && room.kharbatVote.requesterId === oldId) {
+          room.kharbatVote.requesterId = socket.id;
+        }
+
+        if (room.kharbatVote && room.kharbatVote.votes[oldId] !== undefined) {
+          room.kharbatVote.votes[socket.id] = room.kharbatVote.votes[oldId];
+          delete room.kharbatVote.votes[oldId];
+        }
+        
         room.openSets.forEach(set => {
           if (set.ownerId === oldId) {
             set.ownerId = socket.id;
