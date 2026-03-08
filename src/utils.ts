@@ -191,8 +191,9 @@ export function calculateHandPenalty(tiles: (Tile | null)[]): number {
   }, 0);
 }
 
-export function isValidKonkan(tiles: Tile[]): boolean {
-  if (tiles.length !== 14) return false;
+export function isValidKonkan(tiles: Tile[], tilesOnTable: number = 0): boolean {
+  const totalTilesInHand = tiles.length;
+  if (totalTilesInHand + tilesOnTable !== 14) return false;
 
   // Helper to check if a subset of tiles is a valid Okey set
   // and if it's a run, it must be of a specific color (if provided)
@@ -211,33 +212,41 @@ export function isValidKonkan(tiles: Tile[]): boolean {
     return true;
   };
 
-  // 14C4 = 1001 combinations
-  const getSubsets = (arr: Tile[], k: number): number[][] => {
-    const results: number[][] = [];
-    const helper = (start: number, current: number[]) => {
-      if (current.length === k) {
-        results.push([...current]);
-        return;
-      }
-      for (let i = start; i < arr.length; i++) {
-        current.push(i);
-        helper(i + 1, current);
-        current.pop();
-      }
-    };
-    helper(0, []);
-    return results;
-  };
+  // Case 1: All tiles in hand form a single long run (length >= 10)
+  if (isSpecificRunOrSet(tiles, true)) return true;
 
-  const indices = getSubsets(tiles, 4);
-  for (const subset4Indices of indices) {
-    const subset4 = subset4Indices.map(i => tiles[i]);
-    const subset10 = tiles.filter((_, i) => !subset4Indices.includes(i));
+  // Case 2: Hand contains a 10-run and a second valid set (length >= 3)
+  // This is only possible if hand has at least 13 tiles.
+  if (totalTilesInHand >= 13) {
+    // Try all possible sizes for the second set (from 3 up to totalTilesInHand - 10)
+    for (let secondSetSize = 3; secondSetSize <= totalTilesInHand - 10; secondSetSize++) {
+      const getSubsets = (arr: Tile[], k: number): number[][] => {
+        const results: number[][] = [];
+        const helper = (start: number, current: number[]) => {
+          if (current.length === k) {
+            results.push([...current]);
+            return;
+          }
+          for (let i = start; i < arr.length; i++) {
+            current.push(i);
+            helper(i + 1, current);
+            current.pop();
+          }
+        };
+        helper(0, []);
+        return results;
+      };
 
-    // Check if subset10 is a 10-tile same-color run
-    // and subset4 is a 4-tile valid set/run
-    if (isSpecificRunOrSet(subset10, true) && isValidOkeySet(subset4)) {
-      return true;
+      const indices = getSubsets(tiles, secondSetSize);
+      for (const secondSetIndices of indices) {
+        const secondSet = secondSetIndices.map(i => tiles[i]);
+        const firstSet = tiles.filter((_, i) => !secondSetIndices.includes(i));
+        
+        // First set must be a same-color run of at least 10 tiles
+        if (firstSet.length >= 10 && isSpecificRunOrSet(firstSet, true) && isValidOkeySet(secondSet)) {
+          return true;
+        }
+      }
     }
   }
 
