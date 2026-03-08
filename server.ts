@@ -18,7 +18,7 @@ db.exec(`
   )
 `);
 
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || "3000");
 
 function getLocalIp() {
   const interfaces = os.networkInterfaces();
@@ -267,6 +267,7 @@ async function startServer() {
         p.pendingDiscardId = null;
         p.hasPickedJokerThisTurn = false;
         p.isKonkan = false;
+        p.konkanTilesOnTable = 0;
       });
 
       room.deck = fullDeck;
@@ -459,6 +460,11 @@ async function startServer() {
       player.handGrid[tileIndex] = null;
       set.tiles.push(tile);
       player.meldPoints += (calculateSetPoints(set.tiles) - oldPoints);
+      
+      if (player.isKonkan) {
+        player.konkanTilesOnTable = (player.konkanTilesOnTable || 0) + 1;
+      }
+
       io.to(roomCode).emit("gameState", room);
     });
 
@@ -496,8 +502,28 @@ async function startServer() {
       if (!player || player.hasOpened) return;
 
       player.isKonkan = true;
+      player.konkanTilesOnTable = 0;
       io.to(roomCode).emit("gameMessage", `${player.name} entered KONKAN mode!`);
       io.to(roomCode).emit("gameState", room);
+    });
+
+    socket.on("openKonkan", ({ roomCode, tiles }: { roomCode: string, tiles: Tile[] }) => {
+      const room = rooms.get(roomCode);
+      if (!room || room.status !== 'playing' || room.currentTurnPlayerId !== socket.id || room.turnPhase !== 'action') return;
+      const player = room.players.find(p => p.id === socket.id)!;
+      if (!player.isKonkan) return;
+
+      if (isValidKonkan(tiles, player.konkanTilesOnTable || 0)) {
+        // Remove tiles from hand
+        const tileIds = tiles.map(t => t.id);
+        player.handGrid = player.handGrid.map(t => (t && tileIds.includes(t.id)) ? null : t);
+        player.hasOpened = true;
+        
+        // Winning by Konkan is an automatic win for the team
+        handleWin(room, player);
+      } else {
+        socket.emit("error", "Invalid Konkan hand! Must be 10-tile same-color run + remaining tiles forming valid sets (total 14 tiles accounted for).");
+      }
     });
 
     socket.on("resetGame", (roomCode: string) => {
@@ -531,6 +557,7 @@ async function startServer() {
           p.pendingDiscardId = null;
           p.hasPickedJokerThisTurn = false;
           p.isKonkan = false;
+          p.konkanTilesOnTable = 0;
         });
 
         room.deck = fullDeck;
@@ -581,6 +608,8 @@ async function startServer() {
           p.hasOpened = false;
           p.openingPoints = 0;
           p.meldPoints = 0;
+          p.isKonkan = false;
+          p.konkanTilesOnTable = 0;
         });
         room.deck = fullDeck;
         room.discardPile = [];
