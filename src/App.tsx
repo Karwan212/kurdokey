@@ -40,6 +40,18 @@ export default function App() {
   const [inputRoomCode, setInputRoomCode] = useState("");
   const [view, setView] = useState<'login' | 'profile' | 'lobby' | 'game'>('login');
   const [messages, setMessages] = useState<string[]>([]);
+  const [confirmModal, setConfirmModal] = useState<{
+    message: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  const showNotification = (msg: string) => {
+    setMessages(prev => [...prev, msg]);
+    setTimeout(() => {
+      setMessages(prev => prev.filter(m => m !== msg));
+    }, 4000);
+  };
   const [prevHandIds, setPrevHandIds] = useState<string[]>([]);
   const [lastDrawnTileId, setLastDrawnTileId] = useState<string | null>(null);
   const [lastClick, setLastClick] = useState<{ index: number, time: number } | null>(null);
@@ -75,7 +87,7 @@ export default function App() {
 
   const handleGoogleSignIn = async () => {
     if (!auth || !googleProvider) {
-      alert("Google Sign-In is not configured. Please check your Firebase settings.");
+      showNotification("Google Sign-In is not configured. Please check your Firebase settings.");
       return;
     }
     setIsLoggingIn(true);
@@ -86,7 +98,7 @@ export default function App() {
       }
     } catch (error: any) {
       console.error("Login failed:", error);
-      alert("Login failed: " + error.message);
+      showNotification("Login failed: " + error.message);
     } finally {
       setIsLoggingIn(false);
     }
@@ -202,20 +214,17 @@ export default function App() {
           setPlayerName(username);
           setView('lobby');
         } else {
-          alert(error || "Failed to set username");
+          showNotification(error || "Failed to set username");
         }
       });
       newSocket.on('error', (msg: string) => {
-        alert(msg);
+        showNotification(msg);
         setIsJoined(false);
         setRoomCode(null);
         setView('lobby');
       });
       newSocket.on('gameMessage', (msg: string) => {
-        setMessages(prev => [...prev, msg]);
-        setTimeout(() => {
-          setMessages(prev => prev.filter(m => m !== msg));
-        }, 5000);
+        showNotification(msg);
       });
       return () => {
         newSocket.disconnect();
@@ -368,12 +377,12 @@ export default function App() {
           const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
           const teammateHasOpened = teammate?.hasOpened || false;
           const minPoints = teammateHasOpened ? 61 : 81;
-          alert(`You picked up a discard! You must open your game (${minPoints}+ points) before discarding.`);
+          showNotification(`You picked up a discard! You must open your game (${minPoints}+ points) before discarding.`);
         } else if (me.hasPickedJokerThisTurn && !me.hasOpened) {
           const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
           const teammateHasOpened = teammate?.hasOpened || false;
           const minPoints = teammateHasOpened ? 61 : 81;
-          alert(`You picked up a joker! You must open your game (${minPoints}+ points) before discarding.`);
+          showNotification(`You picked up a joker! You must open your game (${minPoints}+ points) before discarding.`);
         } else {
           socket?.emit('discardTile', { roomCode, tileId: tile.id });
           setSelectedForSet([]);
@@ -417,7 +426,7 @@ export default function App() {
       
       // Check if any selected tiles are already staged
       if (tiles.some(t => stagedTileIds.includes(t.id))) {
-        alert("One or more selected tiles are already staged in another set!");
+        showNotification("One or more selected tiles are already staged in another set!");
         return;
       }
 
@@ -425,13 +434,16 @@ export default function App() {
         setStagedSets(prev => [...prev, tiles]);
         setSelectedForSet([]);
       } else {
-        alert("Invalid set! Must be a run (same color, consecutive numbers) or a group (same number, different colors).");
+        showNotification("Invalid set! Must be a run (same color, consecutive numbers) or a group (same number, different colors).");
       }
     }
   };
 
   const handleOpenKonkan = () => {
-    if (socket && me?.isKonkan && selectedForSet.length === 14 && roomCode) {
+    const tilesOnTable = me?.konkanTilesOnTable || 0;
+    const requiredInHand = 14 - tilesOnTable;
+    
+    if (socket && me?.isKonkan && selectedForSet.length === requiredInHand && roomCode) {
       const tiles = selectedForSet.map(id => {
         return me.handGrid.find(t => t?.id === id);
       }).filter(t => t !== null) as Tile[];
@@ -455,14 +467,14 @@ export default function App() {
         if (me.pendingDiscardId) {
           const usedTileIds = stagedSets.flat().map(t => t.id);
           if (!usedTileIds.includes(me.pendingDiscardId)) {
-            alert("You must use the picked discard tile in your sets to open!");
+            showNotification("You must use the picked discard tile in your sets to open!");
             return;
           }
         }
         socket?.emit('openMultipleSets', { roomCode, sets: stagedSets });
         setStagedSets([]);
       } else {
-        alert(`You need at least ${minPoints} points to open! Current: ${stagedPoints}`);
+        showNotification(`You need at least ${minPoints} points to open! Current: ${stagedPoints}`);
       }
     }
   };
@@ -497,7 +509,7 @@ export default function App() {
         const teammate = gameState.players.find(p => p.team === me.team && p.id !== me.id);
         const teammateHasOpened = teammate?.hasOpened || false;
         const minPoints = teammateHasOpened ? 61 : 81;
-        alert(`You must open your own hand (${minPoints}+ points) before adding tiles to sets on the table!`);
+        showNotification(`You must open your own hand (${minPoints}+ points) before adding tiles to sets on the table!`);
         return;
       }
       const set = gameState.openSets.find(s => s.id === setId);
@@ -522,7 +534,7 @@ export default function App() {
           socket?.emit('addToSet', { roomCode, setId, tileId: selectedTileId });
           setSelectedForSet([]);
         } else {
-          alert("This tile cannot be added to this set!");
+          showNotification("This tile cannot be added to this set!");
         }
       }
     }
@@ -898,9 +910,13 @@ export default function App() {
                 {me && !me.hasOpened && !me.isKonkan && gameState.status === 'playing' && (
                   <button
                     onClick={() => {
-                      if (confirm("Are you sure you want to enter KONKAN mode? You won't be able to open normally!")) {
-                        socket?.emit('enterKonkan', roomCode);
-                      }
+                      setConfirmModal({
+                        message: "Are you sure you want to enter KONKAN mode? You won't be able to open normally!",
+                        onConfirm: () => {
+                          socket?.emit('enterKonkan', roomCode);
+                          setConfirmModal(null);
+                        }
+                      });
                     }}
                     className="w-full bg-amber-500 hover:bg-amber-600 text-black px-4 py-3 rounded-xl font-bold text-sm transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
                   >
@@ -1037,9 +1053,13 @@ export default function App() {
             {me && !me.hasOpened && !me.isKonkan && gameState.status === 'playing' && (
               <button
                 onClick={() => {
-                  if (confirm("Are you sure you want to enter KONKAN mode? You won't be able to open normally!")) {
-                    socket?.emit('enterKonkan', roomCode);
-                  }
+                  setConfirmModal({
+                    message: "Are you sure you want to enter KONKAN mode? You won't be able to open normally!",
+                    onConfirm: () => {
+                      socket?.emit('enterKonkan', roomCode);
+                      setConfirmModal(null);
+                    }
+                  });
                 }}
                 className="w-full bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
               >
@@ -1095,17 +1115,67 @@ export default function App() {
 
         <div className="flex-1 relative okey-table overflow-hidden flex flex-col">
           {/* Game Messages Toast Area */}
-          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none">
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className="bg-amber-500 text-black px-6 py-3 rounded-2xl font-bold text-sm shadow-2xl flex items-center gap-3 border border-amber-400/50"
-              >
-                <Info size={18} />
-                {msg}
-              </div>
-            ))}
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-full max-w-xs md:max-w-md px-4">
+            <AnimatePresence>
+              {messages.map((msg, i) => (
+                <motion.div
+                  key={`${msg}-${i}`}
+                  initial={{ opacity: 0, y: -20, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="bg-amber-500 text-black px-4 md:px-6 py-2 md:py-3 rounded-2xl font-bold text-xs md:text-sm shadow-2xl flex items-center gap-2 md:gap-3 border border-amber-400/50 w-full"
+                >
+                  <Info size={18} className="shrink-0" />
+                  <span className="flex-1">{msg}</span>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
+
+          {/* Custom Confirmation Modal */}
+          <AnimatePresence>
+            {confirmModal && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setConfirmModal(null)}
+                  className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                  className="relative bg-neutral-900 border border-white/10 rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl"
+                >
+                  <div className="flex flex-col items-center text-center gap-4">
+                    <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center">
+                      <Info className="text-amber-500 w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-display font-bold text-white uppercase tracking-widest">Confirmation</h3>
+                    <p className="text-neutral-400 text-sm leading-relaxed">
+                      {confirmModal.message}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 w-full mt-4">
+                      <button
+                        onClick={() => setConfirmModal(null)}
+                        className="px-6 py-3 rounded-xl bg-neutral-800 text-white font-bold text-sm hover:bg-neutral-700 transition-colors"
+                      >
+                        CANCEL
+                      </button>
+                      <button
+                        onClick={confirmModal.onConfirm}
+                        className="px-6 py-3 rounded-xl bg-amber-500 text-black font-bold text-sm hover:bg-amber-600 transition-colors shadow-lg shadow-amber-500/20"
+                      >
+                        CONFIRM
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
 
           {/* Opponents */}
         <div className="w-full flex justify-center gap-2 md:gap-8 p-2 md:p-4 z-10 shrink-0">
