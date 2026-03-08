@@ -23,6 +23,7 @@ export interface Player {
   hasPickedJokerThisTurn?: boolean;
   disconnected?: boolean;
   isKonkan?: boolean;
+  konkanTilesOnTable?: number;
 }
 
 export interface OpenSet {
