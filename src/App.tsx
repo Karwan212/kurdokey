@@ -142,28 +142,35 @@ export default function App() {
         disconnect: () => ws.close()
       } as any);
     } else {
-      console.log("Connecting to socket at:", SOCKET_URL);
+      console.log("Connecting to socket at:", SOCKET_URL || "current origin");
       const newSocket = io(SOCKET_URL, {
-        transports: ['websocket', 'polling'],
-        reconnectionAttempts: 5
+        transports: ['polling', 'websocket'],
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
+        timeout: 20000
       });
       
       setSocket(newSocket);
 
       newSocket.on('connect', () => {
-        console.log("Socket connected!", newSocket.id);
+        console.log("Socket connected successfully!", newSocket.id);
         setIsSocketConnected(true);
         setSocketId(newSocket.id || null);
       });
 
-      newSocket.on('disconnect', () => {
-        console.log("Socket disconnected");
+      newSocket.on('disconnect', (reason) => {
+        console.log("Socket disconnected:", reason);
         setIsSocketConnected(false);
         setSocketId(null);
+        if (reason === "io server disconnect") {
+          // the disconnection was initiated by the server, you need to reconnect manually
+          newSocket.connect();
+        }
       });
 
       newSocket.on('connect_error', (err) => {
-        console.error("Socket connection error:", err);
+        console.error("Socket connection error details:", err.message, err.description, err.context);
+        // If websocket fails, it should already fallback to polling because of the transport order
       });
 
       newSocket.on('gameState', (state: GameState) => {
