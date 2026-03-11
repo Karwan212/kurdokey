@@ -22,6 +22,7 @@ export interface Player {
   pendingDiscardId?: string | null;
   hasPickedJokerThisTurn?: boolean;
   disconnected?: boolean;
+  disconnectTime?: number | null;
   isKonkan?: boolean;
   konkanTilesOnTable?: number;
   coins: number;
@@ -62,6 +63,7 @@ export interface GameState {
   turnCount: number;
   kharbatVote: KharbatVote | null;
   isPublic: boolean;
+  level?: number;
   maxRounds: number;
   currentRound: number;
   pot: number;
