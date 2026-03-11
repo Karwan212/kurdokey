@@ -24,6 +24,7 @@ export interface Player {
   disconnected?: boolean;
   isKonkan?: boolean;
   konkanTilesOnTable?: number;
+  coins: number;
 }
 
 export interface OpenSet {
@@ -60,4 +61,8 @@ export interface GameState {
   firstOpenerId: string | null;
   turnCount: number;
   kharbatVote: KharbatVote | null;
+  isPublic: boolean;
+  maxRounds: number;
+  currentRound: number;
+  pot: number;
 }
