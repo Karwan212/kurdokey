@@ -65,6 +65,7 @@ export default function App() {
   const [lastClaim, setLastClaim] = useState<number>(0);
   const [initialTeam1Score, setInitialTeam1Score] = useState<number>(0);
   const [initialTeam2Score, setInitialTeam2Score] = useState<number>(0);
+  const [selectedLevel, setSelectedLevel] = useState<number>(1);
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
@@ -640,7 +641,7 @@ export default function App() {
 
   const handleFindMatch = () => {
     if (user && socket) {
-      socket.emit('findMatch', { uid: user.uid, name: playerName });
+      socket.emit('findMatch', { uid: user.uid, name: playerName, level: selectedLevel });
     }
   };
 
@@ -648,6 +649,14 @@ export default function App() {
     if (user && socket) {
       socket.emit('claimFreeCoins', user.uid);
     }
+  };
+
+  const getTableStyle = (level?: number) => {
+    if (!level || level <= 3) return { background: 'radial-gradient(circle at center, #1a472a 0%, #0d2a1a 100%)' };
+    if (level <= 5) return { background: 'radial-gradient(circle at center, #1a3a47 0%, #0d1a2a 100%)' };
+    if (level <= 7) return { background: 'radial-gradient(circle at center, #3a1a47 0%, #1a0d2a 100%)' };
+    if (level <= 9) return { background: 'radial-gradient(circle at center, #333333 0%, #111111 100%)' };
+    return { background: 'radial-gradient(circle at center, #471a1a 0%, #2a0d0d 100%)' };
   };
 
   if (view === 'login') {
@@ -782,12 +791,41 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="pt-4 space-y-4">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-[10px] text-neutral-500 font-black uppercase tracking-widest px-1">Select Match Level</p>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((lvl) => {
+                      const fees: Record<number, number> = { 1: 25, 2: 50, 3: 100, 4: 250, 5: 500, 6: 1000, 7: 2500, 8: 5000, 9: 7000, 10: 10000 };
+                      return (
+                        <button
+                          key={lvl}
+                          onClick={() => setSelectedLevel(lvl)}
+                          className={`py-2 rounded-xl text-xs font-bold transition-all border ${
+                            selectedLevel === lvl 
+                              ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-500/20' 
+                              : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'
+                          }`}
+                        >
+                          L{lvl}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-emerald-500/60 font-bold text-center mt-1">
+                    Entry Fee: {[25, 50, 100, 250, 500, 1000, 2500, 5000, 7000, 10000][selectedLevel-1]} Coins
+                  </p>
+                </div>
+
                 <button 
                   onClick={handleFindMatch}
-                  className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-3"
+                  className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-emerald-600/20 flex flex-col items-center justify-center gap-1"
                 >
-                  <Users size={24} /> Find a Match (25 Coins)
+                  <div className="flex items-center gap-3">
+                    <Users size={24} /> 
+                    <span>Find Match (Level {selectedLevel})</span>
+                  </div>
+                  <span className="text-[10px] opacity-60 uppercase tracking-widest">Win share of the pot!</span>
                 </button>
 
                 <button 
@@ -1246,7 +1284,10 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex-1 relative okey-table overflow-hidden flex flex-col">
+        <div 
+          className="flex-1 relative okey-table overflow-hidden flex flex-col"
+          style={getTableStyle(gameState.level)}
+        >
           {/* Game Messages Toast Area */}
           <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-full max-w-xs md:max-w-md px-4">
             <AnimatePresence>
