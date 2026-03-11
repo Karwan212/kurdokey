@@ -287,7 +287,8 @@ export default function App() {
   }, []);
 
   const me = useMemo(() => {
-    return gameState?.players.find(p => p.id === socketId);
+    if (!gameState) return undefined;
+    return gameState.players.find(p => p.id === socketId);
   }, [gameState, socketId]);
 
   useEffect(() => {
@@ -393,7 +394,8 @@ export default function App() {
   }, [isMyTurn]);
 
   const currentTurnPlayerName = useMemo(() => {
-    return gameState?.players.find(p => p.id === gameState.currentTurnPlayerId)?.name;
+    if (!gameState) return undefined;
+    return gameState.players.find(p => p.id === gameState.currentTurnPlayerId)?.name;
   }, [gameState]);
 
   const handleDraw = () => {
