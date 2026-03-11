@@ -12,12 +12,12 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-7CYCVD43R9",
 };
 
-// Only initialize if we have at least an API key
-const hasConfig = !!firebaseConfig.apiKey;
+// Only initialize if we have at least an API key and it's not a placeholder
+const hasConfig = !!firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("YOUR_");
 
-let app;
-let auth: any;
-let googleProvider: any;
+let app: any;
+let auth: any = null;
+let googleProvider: any = null;
 let analytics: any = null;
 
 if (hasConfig) {
@@ -26,7 +26,15 @@ if (hasConfig) {
     auth = getAuth(app);
     googleProvider = new GoogleAuthProvider();
     
+    // Configure provider
+    googleProvider.setCustomParameters({
+      prompt: 'select_account'
+    });
+    
     if (typeof window !== 'undefined') {
+      (window as any).firebaseConfig = firebaseConfig;
+      (window as any).firebaseApp = app;
+      
       isSupported().then(supported => {
         if (supported) {
           analytics = getAnalytics(app);
@@ -36,6 +44,10 @@ if (hasConfig) {
   } catch (error) {
     console.error("Firebase initialization failed:", error);
   }
+} else {
+  console.warn("Firebase configuration is missing or invalid. Auth features will be disabled.");
 }
 
-export { auth, googleProvider, analytics };
+const isFirebaseConfigured = hasConfig;
+
+export { auth, googleProvider, analytics, firebaseConfig, isFirebaseConfigured };
