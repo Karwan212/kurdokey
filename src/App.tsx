@@ -71,21 +71,39 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       console.log("Auth state changed:", firebaseUser?.uid);
       setUser(firebaseUser);
-      if (firebaseUser) {
-        if (socket) {
-          console.log("Emitting getUsername for:", firebaseUser.uid);
-          setIsCheckingProfile(true);
-          socket.emit('getUsername', firebaseUser.uid);
-        } else {
-          console.log("User logged in but socket not ready yet");
-        }
-      } else {
-        setView('login');
-        setIsCheckingProfile(false);
-      }
     });
     return () => unsubscribe();
-  }, [socket]);
+  }, []);
+
+  useEffect(() => {
+    if (user && socket && isSocketConnected) {
+      console.log("Emitting getUsername for:", user.uid);
+      setIsCheckingProfile(true);
+      socket.emit('getUsername', user.uid);
+    }
+  }, [user, socket, isSocketConnected]);
+
+  useEffect(() => {
+    let timeout: any;
+    if (isCheckingProfile) {
+      timeout = setTimeout(() => {
+        if (isCheckingProfile) {
+          console.warn("Profile check timed out");
+          setIsCheckingProfile(false);
+          showNotification("Profile check timed out. Please try again.");
+        }
+      }, 10000);
+    }
+    return () => clearTimeout(timeout);
+  }, [isCheckingProfile]);
+
+  useEffect(() => {
+    if (user && !isCheckingProfile && view === 'login' && isSocketConnected && socket) {
+       console.log("User logged in but still on login screen. Forcing profile check.");
+       setIsCheckingProfile(true);
+       socket.emit('getUsername', user.uid);
+    }
+  }, [user, isCheckingProfile, view, socket, isSocketConnected]);
 
   const handleGoogleSignIn = async () => {
     if (!auth || !googleProvider) {
@@ -94,10 +112,13 @@ export default function App() {
     }
     setIsLoggingIn(true);
     try {
+      console.log("Starting Google Sign-In...");
       const result = await signInWithPopup(auth, googleProvider);
+      console.log("Sign-In successful for:", result.user.uid);
       if (result.user.displayName) {
         setPlayerName(result.user.displayName);
       }
+      setUser(result.user);
     } catch (error: any) {
       console.error("Login failed:", error);
       showNotification("Login failed: " + error.message);
@@ -115,6 +136,17 @@ export default function App() {
       console.error("Sign out failed:", error);
     }
   };
+
+  useEffect(() => {
+    console.log("App State Update:", { 
+      hasUser: !!user, 
+      uid: user?.uid,
+      hasSocket: !!socket, 
+      isSocketConnected, 
+      view, 
+      isCheckingProfile 
+    });
+  }, [user, socket, isSocketConnected, view, isCheckingProfile]);
 
   const selectedTileId = useMemo(() => {
     return selectedForSet.length === 1 ? selectedForSet[0] : null;
