@@ -14,7 +14,9 @@ const db = new Database("okey.db");
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     uid TEXT PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL
+    username TEXT UNIQUE NOT NULL,
+    coins INTEGER DEFAULT 100,
+    last_claim INTEGER DEFAULT 0
   )
 `);
 
@@ -86,6 +88,10 @@ function getInitialGameState(roomCode: string): RoomState {
     firstOpenerId: null,
     turnCount: 0,
     kharbatVote: null,
+    isPublic: false,
+    maxRounds: 0,
+    currentRound: 1,
+    pot: 0,
   };
 }
 
@@ -117,14 +123,14 @@ async function startServer() {
     console.log("User connected:", socket.id);
 
     socket.on("getUsername", (uid: string) => {
-      const row = db.prepare("SELECT username FROM users WHERE uid = ?").get(uid) as { username: string } | undefined;
-      socket.emit("usernameResult", { uid, username: row?.username || null });
+      const row = db.prepare("SELECT username, coins, last_claim FROM users WHERE uid = ?").get(uid) as { username: string, coins: number, last_claim: number } | undefined;
+      socket.emit("usernameResult", { uid, username: row?.username || null, coins: row?.coins ?? 100, lastClaim: row?.last_claim ?? 0 });
     });
 
     socket.on("setUsername", ({ uid, username }: { uid: string, username: string }) => {
       try {
-        db.prepare("INSERT INTO users (uid, username) VALUES (?, ?)").run(uid, username);
-        socket.emit("setUsernameResult", { success: true, username });
+        db.prepare("INSERT INTO users (uid, username, coins, last_claim) VALUES (?, ?, 100, 0)").run(uid, username);
+        socket.emit("setUsernameResult", { success: true, username, coins: 100, lastClaim: 0 });
       } catch (error: any) {
         if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
           socket.emit("setUsernameResult", { success: false, error: "Username already taken" });
@@ -134,7 +140,111 @@ async function startServer() {
       }
     });
 
+    socket.on("claimFreeCoins", (uid: string) => {
+      const user = db.prepare("SELECT coins, last_claim FROM users WHERE uid = ?").get(uid) as { coins: number, last_claim: number } | undefined;
+      if (!user) return;
+
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+
+      if (user.coins < 25 && now - user.last_claim >= oneDay) {
+        db.prepare("UPDATE users SET coins = coins + 100, last_claim = ? WHERE uid = ?").run(now, uid);
+        socket.emit("freeCoinsResult", { success: true, coins: user.coins + 100, lastClaim: now });
+      } else {
+        const remaining = oneDay - (now - user.last_claim);
+        const hours = Math.ceil(remaining / (1000 * 60 * 60));
+        socket.emit("freeCoinsResult", { success: false, error: `Wait ${hours}h for free coins` });
+      }
+    });
+
+    socket.on("findMatch", ({ uid, name }: { uid: string, name: string }) => {
+      const user = db.prepare("SELECT coins FROM users WHERE uid = ?").get(uid) as { coins: number } | undefined;
+      if (!user || user.coins < 25) {
+        socket.emit("error", "Not enough coins! You need at least 25 coins.");
+        return;
+      }
+
+      // Find available public room
+      let roomCode = "";
+      let room: RoomState | undefined;
+
+      for (const [code, r] of rooms.entries()) {
+        if (r.isPublic && r.status === 'lobby' && r.players.length < 4) {
+          // Check if player already in room
+          if (r.players.some(p => p.uid === uid)) {
+            socket.emit("roomJoined", code);
+            return;
+          }
+          roomCode = code;
+          room = r;
+          break;
+        }
+      }
+
+      if (!room) {
+        roomCode = generateRoomCode();
+        room = getInitialGameState(roomCode);
+        room.isPublic = true;
+        room.maxRounds = 7;
+        room.pot = 0;
+        rooms.set(roomCode, room);
+      }
+
+      // Deduct coins
+      db.prepare("UPDATE users SET coins = coins - 25 WHERE uid = ?").run(uid);
+      room.pot += 25;
+
+      // Assign team automatically
+      const team1Count = room.players.filter(p => p.team === 1).length;
+      const team2Count = room.players.filter(p => p.team === 2).length;
+      const team = team1Count <= team2Count ? 1 : 2;
+
+      const newPlayer: Player = {
+        id: socket.id,
+        uid,
+        name,
+        team,
+        handGrid: Array(30).fill(null),
+        isHost: room.players.length === 0,
+        ready: true,
+        hasOpened: false,
+        openingPoints: 0,
+        meldPoints: 0,
+        disconnected: false,
+        coins: user.coins - 25
+      };
+
+      room.players.push(newPlayer);
+      socket.join(roomCode);
+      socket.emit("roomJoined", roomCode);
+      io.to(roomCode).emit("gameState", room);
+
+      // Auto start if 4 players
+      if (room.players.length === 4) {
+        startRoomGame(roomCode);
+      }
+    });
+
+    function startRoomGame(roomCode: string) {
+      const room = rooms.get(roomCode);
+      if (!room || room.players.length < 4) return;
+
+      const fullDeck = createDeck();
+      room.players.forEach((p, index) => {
+        const count = index === 0 ? 15 : 14;
+        const tiles = fullDeck.splice(0, count);
+        tiles.forEach((t, i) => { p.handGrid[i] = t; });
+      });
+
+      room.deck = fullDeck;
+      room.status = 'playing';
+      room.currentTurnPlayerId = room.players[0].id;
+      room.turnPhase = 'action';
+      io.to(roomCode).emit("gameState", room);
+    }
+
     socket.on("createRoom", ({ uid, name, team }: { uid: string, name: string, team: 1 | 2 }) => {
+      const user = db.prepare("SELECT coins FROM users WHERE uid = ?").get(uid) as { coins: number } | undefined;
       const roomCode = generateRoomCode();
       const room = getInitialGameState(roomCode);
       
@@ -150,6 +260,7 @@ async function startServer() {
         openingPoints: 0,
         meldPoints: 0,
         disconnected: false,
+        coins: user?.coins ?? 100
       };
 
       room.players.push(newPlayer);
@@ -220,6 +331,7 @@ async function startServer() {
         return;
       }
 
+      const user = db.prepare("SELECT coins FROM users WHERE uid = ?").get(uid) as { coins: number } | undefined;
       const newPlayer: Player = {
         id: socket.id,
         uid,
@@ -232,6 +344,7 @@ async function startServer() {
         openingPoints: 0,
         meldPoints: 0,
         disconnected: false,
+        coins: user?.coins ?? 100
       };
 
       room.players.push(newPlayer);
@@ -436,6 +549,9 @@ async function startServer() {
       }
 
       player.handGrid = player.handGrid.map(t => (t && allTileIdsToOpen.includes(t.id)) ? null : t);
+      if (!player.hasOpened) {
+        player.openingPoints = totalPoints;
+      }
       player.hasOpened = true;
       player.pendingDiscardId = null; // Clear pending discard once opened
       player.meldPoints += totalPoints;
@@ -542,6 +658,16 @@ async function startServer() {
 
       // If finished, we start a new round immediately
       if (room.status === 'finished') {
+        if (room.isPublic && room.currentRound >= room.maxRounds) {
+          // Match is over, go back to lobby
+          room.status = 'lobby';
+          room.roundScores = [];
+          room.currentRound = 1;
+          room.pot = 0;
+          io.to(roomCode).emit("gameState", room);
+          return;
+        }
+
         // Reorder players so host (winner) is first and teams alternate
         const host = room.players.find(p => p.isHost);
         if (host) {
@@ -681,6 +807,43 @@ async function startServer() {
       }
     });
     room.roundScores.push({ team1: winningTeam === 1 ? roundPoints : 0, team2: winningTeam === 2 ? roundPoints : 0 });
+
+    // Public match logic
+    if (room.isPublic) {
+      if (room.currentRound >= room.maxRounds) {
+        // End of public match - distribute coins
+        const totalTeam1 = room.roundScores.reduce((sum, r) => sum + r.team1, 0);
+        const totalTeam2 = room.roundScores.reduce((sum, r) => sum + r.team2, 0);
+        
+        let winningTeamId: 1 | 2 | 0 = 0; // 0 for draw
+        if (totalTeam1 > totalTeam2) winningTeamId = 1;
+        else if (totalTeam2 > totalTeam1) winningTeamId = 2;
+
+        if (winningTeamId !== 0) {
+          const winners = room.players.filter(p => p.team === winningTeamId);
+          const share = Math.floor(room.pot / winners.length);
+          winners.forEach(w => {
+            db.prepare("UPDATE users SET coins = coins + ? WHERE uid = ?").run(share, w.uid);
+          });
+          room.winner = `Team ${winningTeamId} Wins the Match!`;
+        } else {
+          // Draw - return coins? Or just no winner. User didn't specify. 
+          // Let's split pot among all 4 if draw.
+          const share = Math.floor(room.pot / room.players.length);
+          room.players.forEach(p => {
+            db.prepare("UPDATE users SET coins = coins + ? WHERE uid = ?").run(share, p.uid);
+          });
+          room.winner = "It's a Draw!";
+        }
+        room.status = 'finished'; // Final finish
+      } else {
+        // Auto-start next round for public matches after a delay? 
+        // Or wait for host? Public matches should probably be more automated.
+        // For now, let's just increment round and wait for reset.
+        room.currentRound++;
+      }
+    }
+
     io.to(room.roomCode).emit("gameState", room);
   }
 
