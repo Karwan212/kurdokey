@@ -61,6 +61,8 @@ export default function App() {
   const [isCheckingProfile, setIsCheckingProfile] = useState(false);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [socketId, setSocketId] = useState<string | null>(null);
+  const [coins, setCoins] = useState<number>(0);
+  const [lastClaim, setLastClaim] = useState<number>(0);
   const [initialTeam1Score, setInitialTeam1Score] = useState<number>(0);
   const [initialTeam2Score, setInitialTeam2Score] = useState<number>(0);
 
@@ -196,9 +198,11 @@ export default function App() {
         localStorage.removeItem('okey_room_code');
         setView('lobby');
       });
-      newSocket.on('usernameResult', ({ uid, username }: { uid: string, username: string | null }) => {
+      newSocket.on('usernameResult', ({ uid, username, coins, lastClaim }: { uid: string, username: string | null, coins: number, lastClaim: number }) => {
         console.log("Received usernameResult:", username);
         setIsCheckingProfile(false);
+        if (coins !== undefined) setCoins(coins);
+        if (lastClaim !== undefined) setLastClaim(lastClaim);
         if (username) {
           setPlayerName(username);
           setView('lobby');
@@ -216,12 +220,23 @@ export default function App() {
           setView('profile');
         }
       });
-      newSocket.on('setUsernameResult', ({ success, username, error }: { success: boolean, username?: string, error?: string }) => {
+      newSocket.on('setUsernameResult', ({ success, username, coins, lastClaim, error }: { success: boolean, username?: string, coins?: number, lastClaim?: number, error?: string }) => {
         if (success && username) {
           setPlayerName(username);
+          if (coins !== undefined) setCoins(coins);
+          if (lastClaim !== undefined) setLastClaim(lastClaim);
           setView('lobby');
         } else {
           showNotification(error || "Failed to set username");
+        }
+      });
+      newSocket.on('freeCoinsResult', ({ success, coins, lastClaim, error }: { success: boolean, coins?: number, lastClaim?: number, error?: string }) => {
+        if (success) {
+          if (coins !== undefined) setCoins(coins);
+          if (lastClaim !== undefined) setLastClaim(lastClaim);
+          showNotification("You received 100 free coins!");
+        } else {
+          showNotification(error || "Failed to claim free coins");
         }
       });
       newSocket.on('error', (msg: string) => {
@@ -570,6 +585,18 @@ export default function App() {
     if (roomCode) socket?.emit('voteKharbat', { roomCode, agree });
   };
 
+  const handleFindMatch = () => {
+    if (user && socket) {
+      socket.emit('findMatch', { uid: user.uid, name: playerName });
+    }
+  };
+
+  const handleClaimFreeCoins = () => {
+    if (user && socket) {
+      socket.emit('claimFreeCoins', user.uid);
+    }
+  };
+
   if (view === 'login') {
     return (
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 overflow-y-auto">
@@ -693,10 +720,17 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="pt-4 space-y-3">
+              <div className="pt-4 space-y-4">
+                <button 
+                  onClick={handleFindMatch}
+                  className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-3"
+                >
+                  <Users size={24} /> Find a Match (25 Coins)
+                </button>
+
                 <button 
                   onClick={handleCreateRoom}
-                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-white rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  className="w-full py-4 bg-white/5 hover:bg-white/10 text-white rounded-2xl font-bold transition-all border border-white/5 flex items-center justify-center gap-3"
                 >
                   <Plus size={20} /> Create New Room
                 </button>
@@ -726,18 +760,35 @@ export default function App() {
             </div>
 
             <div className="pt-4 text-center">
-              <div className="flex flex-col items-center gap-2">
-                <div className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-2xl border border-white/10">
-                  {user?.photoURL && (
-                    <img 
-                      src={user.photoURL} 
-                      alt={playerName} 
-                      className="w-6 h-6 rounded-full"
-                      referrerPolicy="no-referrer"
-                    />
-                  )}
-                  <span className="text-sm text-neutral-300 font-medium">Playing as {playerName}</span>
+              <div className="flex flex-col items-center gap-4">
+                <div className="flex items-center gap-6 bg-white/5 px-6 py-3 rounded-2xl border border-white/10">
+                  <div className="flex items-center gap-3">
+                    {user?.photoURL && (
+                      <img 
+                        src={user.photoURL} 
+                        alt={playerName} 
+                        className="w-8 h-8 rounded-full"
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                    <span className="text-sm text-neutral-300 font-medium">{playerName}</span>
+                  </div>
+                  <div className="h-6 w-px bg-white/10" />
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-black">C</div>
+                    <span className="text-lg font-bold text-white">{coins}</span>
+                  </div>
                 </div>
+
+                {coins < 25 && (
+                  <button 
+                    onClick={handleClaimFreeCoins}
+                    className="bg-amber-500 hover:bg-amber-600 text-black px-6 py-2 rounded-full text-xs font-bold transition-all shadow-lg shadow-amber-500/20"
+                  >
+                    Claim Free 100 Coins
+                  </button>
+                )}
+
                 <button 
                   onClick={handleSignOut}
                   className="text-neutral-500 hover:text-red-400 text-xs transition-colors flex items-center justify-center gap-2 mx-auto"
@@ -997,7 +1048,7 @@ export default function App() {
           <div className="flex items-center gap-2 shrink-0">
             <div className={`w-2 h-2 rounded-full ${isMyTurn ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
             <span className="text-[10px] md:text-xs font-bold text-white uppercase tracking-widest whitespace-nowrap">
-              {isMyTurn ? 'Your Turn' : `${currentTurnPlayerName}'s Turn`}
+              {isMyTurn ? 'Your Turn' : `${currentTurnPlayerName?.substring(0, 6)}'s Turn`}
             </span>
           </div>
           <div className="h-4 w-px bg-white/10 shrink-0" />
@@ -1005,6 +1056,19 @@ export default function App() {
             <Layers size={14} />
             <span className="whitespace-nowrap">{gameState.deck.length} Tiles</span>
           </div>
+          {gameState.isPublic && (
+            <>
+              <div className="h-4 w-px bg-white/10 shrink-0" />
+              <div className="flex items-center gap-2 text-amber-500 text-[10px] md:text-xs shrink-0">
+                <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center text-[8px] font-black text-black">C</div>
+                <span className="whitespace-nowrap font-bold">Pot: {gameState.pot}</span>
+              </div>
+              <div className="h-4 w-px bg-white/10 shrink-0" />
+              <div className="flex items-center gap-2 text-blue-400 text-[10px] md:text-xs shrink-0">
+                <span className="whitespace-nowrap font-bold">Round: {gameState.currentRound} / {gameState.maxRounds}</span>
+              </div>
+            </>
+          )}
           <div className="hidden md:block h-4 w-px bg-white/10" />
           <div className="hidden md:flex items-center gap-2 text-neutral-400 text-xs">
             <Info size={14} />
@@ -1223,6 +1287,10 @@ export default function App() {
                       }`}>
                         T{opp.team}
                       </span>
+                      <div className="flex items-center gap-1 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">
+                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500 flex items-center justify-center text-[5px] font-black text-black">C</div>
+                        <span className="text-[7px] font-bold text-amber-400">{opp.coins}</span>
+                      </div>
                       <p className="text-[8px] md:text-[10px] text-neutral-400 uppercase tracking-tighter">{opp.handGrid.filter(t => t !== null).length} Tiles</p>
                     </div>
                   </div>
@@ -1232,49 +1300,53 @@ export default function App() {
                 <div className="flex flex-col gap-2 w-full max-h-32 md:max-h-70 overflow-y-auto custom-scrollbar">
                   {opp.hasOpened && (
                     <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                      <div className="flex items-center justify-between mb-2 px-1">
-                        <span className="text-[8px] font-black text-neutral-500 uppercase tracking-widest">Open Sets</span>
+                      <div className="flex items-center justify-center mb-2 px-1">
                         <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                           Total: {opp.openingPoints || opp.meldPoints}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         {gameState.openSets.filter(s => s.ownerId === opp.id).map(set => (
-                          <div 
-                            key={set.id}
-                            onClick={() => {
-                              if (!me?.hasOpened && !me?.isKonkan) {
-                                setMessages(prev => [...prev, "You must be OPENSET or KONKAN to take a joker!"]);
-                                setTimeout(() => setMessages(prev => prev.slice(1)), 3000);
-                                return;
-                              }
-                              handleAddToSet(set.id);
-                            }}
-                            className={`flex gap-0.5 p-1 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 cursor-pointer transition-all ${
-                              selectedTileId ? 'ring-1 ring-emerald-500/50' : ''
-                            }`}
-                          >
-                            {set.tiles.map(t => (
-                              <TileView 
-                                key={t.id}
-                                tile={t} 
-                                size="xs" 
-                                onClick={(e) => {
-                                  if (t.isFakeJoker && selectedTileId) {
-                                    e.stopPropagation();
-                                    handleReplaceJoker(set.id, selectedTileId, t.id);
-                                  }
-                                }}
-                                className={t.isFakeJoker && selectedTileId ? "relative group" : ""}
-                              >
-                                {t.isFakeJoker && selectedTileId && (
-                                  <div className="absolute inset-0 bg-emerald-500/40 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <RotateCcw size={10} className="text-white" />
-                                  </div>
-                                )}
-                              </TileView>
-                            ))}
-                          </div>
+                            <div 
+                              key={set.id}
+                              onClick={() => {
+                                if (!me?.hasOpened && !me?.isKonkan) {
+                                  setMessages(prev => [...prev, "You must be OPENSET or KONKAN to take a joker!"]);
+                                  setTimeout(() => setMessages(prev => prev.slice(1)), 3000);
+                                  return;
+                                }
+                                handleAddToSet(set.id);
+                              }}
+                              className={`flex flex-col gap-1 p-1 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 cursor-pointer transition-all ${
+                                selectedTileId ? 'ring-1 ring-emerald-500/50' : ''
+                              }`}
+                            >
+                              <div className="flex gap-0.5">
+                                {set.tiles.map(t => (
+                                  <TileView 
+                                    key={t.id}
+                                    tile={t} 
+                                    size="xs" 
+                                    onClick={(e) => {
+                                      if (t.isFakeJoker && selectedTileId) {
+                                        e.stopPropagation();
+                                        handleReplaceJoker(set.id, selectedTileId, t.id);
+                                      }
+                                    }}
+                                    className={t.isFakeJoker && selectedTileId ? "relative group" : ""}
+                                  >
+                                    {t.isFakeJoker && selectedTileId && (
+                                      <div className="absolute inset-0 bg-emerald-500/40 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <RotateCcw size={10} className="text-white" />
+                                      </div>
+                                    )}
+                                  </TileView>
+                                ))}
+                              </div>
+                              <div className="text-[7px] font-bold text-neutral-500 text-center bg-black/20 rounded py-0.5">
+                                {calculateSetPoints(set.tiles)}
+                              </div>
+                            </div>
                         ))}
                       </div>
                     </div>
@@ -1403,6 +1475,10 @@ export default function App() {
                       YOUR TURN
                     </span>
                   )}
+                  <div className="flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                    <div className="w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center text-[6px] font-black text-black">C</div>
+                    <span className="text-[8px] font-bold text-amber-400">{me?.coins ?? coins}</span>
+                  </div>
                 </div>
                 {me?.handGrid.filter(t => t !== null).length === 15 && (
                   <div 
@@ -1418,9 +1494,8 @@ export default function App() {
                 {me?.hasOpened && (
                   <div className="bg-white/5 p-2 md:p-3 rounded-xl md:rounded-2xl border border-white/5">
                     <div className="flex items-center justify-between mb-2 px-1">
-                      <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">My Open Sets</span>
                       <span className="text-xs md:text-sm font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-                        Total Value: {me.openingPoints || me.meldPoints}
+                        Total: {me.openingPoints || me.meldPoints}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 md:gap-3 max-h-24 md:max-h-none overflow-y-auto">
@@ -1428,30 +1503,35 @@ export default function App() {
                         <div 
                           key={set.id}
                           onClick={() => handleAddToSet(set.id)}
-                          className={`flex gap-0.5 md:gap-1 p-1 md:p-1.5 bg-white/5 rounded-lg md:rounded-xl border border-white/5 hover:bg-white/10 cursor-pointer transition-all ${
+                          className={`flex flex-col gap-1 p-1 md:p-1.5 bg-white/5 rounded-lg md:rounded-xl border border-white/5 hover:bg-white/10 cursor-pointer transition-all ${
                             selectedTileId ? 'ring-2 ring-emerald-500/50' : ''
                           }`}
                         >
-                          {set.tiles.map(t => (
-                            <TileView 
-                              key={t.id}
-                              tile={t} 
-                              size="xs" 
-                              onClick={(e) => {
-                                if (t.isFakeJoker && selectedTileId) {
-                                  e.stopPropagation();
-                                  handleReplaceJoker(set.id, selectedTileId, t.id);
-                                }
-                              }}
-                              className={t.isFakeJoker && selectedTileId ? "relative group" : ""}
-                            >
-                              {t.isFakeJoker && selectedTileId && (
-                                <div className="absolute inset-0 bg-emerald-500/40 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <RotateCcw size={12} className="text-white" />
-                                </div>
-                              )}
-                            </TileView>
-                          ))}
+                          <div className="flex gap-0.5 md:gap-1">
+                            {set.tiles.map(t => (
+                              <TileView 
+                                key={t.id}
+                                tile={t} 
+                                size="xs" 
+                                onClick={(e) => {
+                                  if (t.isFakeJoker && selectedTileId) {
+                                    e.stopPropagation();
+                                    handleReplaceJoker(set.id, selectedTileId, t.id);
+                                  }
+                                }}
+                                className={t.isFakeJoker && selectedTileId ? "relative group" : ""}
+                              >
+                                {t.isFakeJoker && selectedTileId && (
+                                  <div className="absolute inset-0 bg-emerald-500/40 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <RotateCcw size={12} className="text-white" />
+                                  </div>
+                                )}
+                              </TileView>
+                            ))}
+                          </div>
+                          <div className="text-[8px] font-bold text-neutral-500 text-center bg-black/20 rounded py-0.5">
+                            Value: {calculateSetPoints(set.tiles)}
+                          </div>
                         </div>
                       ))}
                     </div>
