@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { GameState, Player, Tile, Color, OpenSet } from './types';
 import { isValidOkeySet, calculateSetPoints, calculateHandPenalty, getJokerReplacement } from './utils';
-import { auth, googleProvider } from './lib/firebase';
+import { auth, googleProvider, firebaseConfig, isFirebaseConfigured } from './lib/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "";
@@ -67,9 +67,28 @@ export default function App() {
   const [initialTeam2Score, setInitialTeam2Score] = useState<number>(0);
 
   useEffect(() => {
-    if (!auth) return;
+    const handleError = (event: ErrorEvent) => {
+      console.error("Global Error Caught:", event.error);
+      showNotification("Application Error: " + (event.error?.message || "Unknown error"));
+    };
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  useEffect(() => {
+    console.log("Firebase Config Check:", {
+      hasApiKey: !!firebaseConfig.apiKey,
+      authDomain: firebaseConfig.authDomain,
+      hasAuth: !!auth,
+      hasProvider: !!googleProvider
+    });
+
+    if (!auth) {
+      console.warn("Auth is not initialized. Check Firebase configuration.");
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.log("Auth state changed:", firebaseUser?.uid);
+      console.log("Auth state changed:", firebaseUser ? `User: ${firebaseUser.uid}` : "No user");
       setUser(firebaseUser);
     });
     return () => unsubscribe();
@@ -640,6 +659,15 @@ export default function App() {
           <p className="text-neutral-400 mb-10">Sign in to start playing with your friends online.</p>
           
           <div className="space-y-4">
+            {!isFirebaseConfigured && (
+              <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl text-red-400 text-sm mb-6">
+                <p className="font-bold mb-1">Firebase Not Configured</p>
+                <p className="text-xs opacity-80">
+                  Please provide your Firebase API Key and other credentials in the environment variables.
+                </p>
+              </div>
+            )}
+
             {!isSocketConnected && (
               <div className="text-amber-500 text-xs font-bold animate-pulse mb-4">
                 Connecting to server...
