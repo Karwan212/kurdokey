@@ -72,6 +72,19 @@ function generateRoomCode(): string {
   return code;
 }
 
+const ROOM_LEVELS: Record<number, number> = {
+  1: 25,
+  2: 50,
+  3: 100,
+  4: 250,
+  5: 500,
+  6: 1000,
+  7: 2500,
+  8: 5000,
+  9: 7000,
+  10: 10000
+};
+
 function getInitialGameState(roomCode: string): RoomState {
   return {
     roomCode,
@@ -89,6 +102,7 @@ function getInitialGameState(roomCode: string): RoomState {
     turnCount: 0,
     kharbatVote: null,
     isPublic: false,
+    level: 1,
     maxRounds: 0,
     currentRound: 1,
     pot: 0,
@@ -121,6 +135,27 @@ async function startServer() {
 
   io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
+
+    function handleForfeit(roomCode: string, forfeitedUid: string) {
+      const room = rooms.get(roomCode);
+      if (!room || room.status !== 'playing') return;
+
+      const forfeitedPlayer = room.players.find(p => p.uid === forfeitedUid);
+      if (!forfeitedPlayer) return;
+
+      const winningTeam = forfeitedPlayer.team === 1 ? 2 : 1;
+      
+      // Deduct coins from forfeited player (penalty)
+      // If it was a public match, they already lost 25. Let's deduct another 50 as penalty.
+      db.prepare("UPDATE users SET coins = MAX(0, coins - 50) WHERE uid = ?").run(forfeitedUid);
+      
+      // End game
+      room.status = 'finished';
+      room.winner = `Team ${winningTeam} (Forfeit)`;
+      
+      io.to(roomCode).emit("gameMessage", `${forfeitedPlayer.name} left or timed out. Team ${winningTeam} wins!`);
+      io.to(roomCode).emit("gameState", room);
+    }
 
     socket.on("getUsername", (uid: string) => {
       const row = db.prepare("SELECT username, coins, last_claim FROM users WHERE uid = ?").get(uid) as { username: string, coins: number, last_claim: number } | undefined;
@@ -157,19 +192,21 @@ async function startServer() {
       }
     });
 
-    socket.on("findMatch", ({ uid, name }: { uid: string, name: string }) => {
+    socket.on("findMatch", ({ uid, name, level = 1 }: { uid: string, name: string, level?: number }) => {
+      const entryFee = ROOM_LEVELS[level] || 25;
       const user = db.prepare("SELECT coins FROM users WHERE uid = ?").get(uid) as { coins: number } | undefined;
-      if (!user || user.coins < 25) {
-        socket.emit("error", "Not enough coins! You need at least 25 coins.");
+      
+      if (!user || user.coins < entryFee) {
+        socket.emit("error", `Not enough coins! You need at least ${entryFee} coins for Level ${level}.`);
         return;
       }
 
-      // Find available public room
+      // Find available public room with same level
       let roomCode = "";
       let room: RoomState | undefined;
 
       for (const [code, r] of rooms.entries()) {
-        if (r.isPublic && r.status === 'lobby' && r.players.length < 4) {
+        if (r.isPublic && r.status === 'lobby' && r.players.length < 4 && r.level === level) {
           // Check if player already in room
           if (r.players.some(p => p.uid === uid)) {
             socket.emit("roomJoined", code);
@@ -185,14 +222,15 @@ async function startServer() {
         roomCode = generateRoomCode();
         room = getInitialGameState(roomCode);
         room.isPublic = true;
+        room.level = level;
         room.maxRounds = 7;
         room.pot = 0;
         rooms.set(roomCode, room);
       }
 
       // Deduct coins
-      db.prepare("UPDATE users SET coins = coins - 25 WHERE uid = ?").run(uid);
-      room.pot += 25;
+      db.prepare("UPDATE users SET coins = coins - ? WHERE uid = ?").run(entryFee, uid);
+      room.pot += entryFee;
 
       // Assign team automatically
       const team1Count = room.players.filter(p => p.team === 1).length;
@@ -284,6 +322,7 @@ async function startServer() {
         const oldId = existingPlayer.id;
         existingPlayer.id = socket.id;
         existingPlayer.disconnected = false;
+        existingPlayer.disconnectTime = null;
         
         if (room.currentTurnPlayerId === oldId) {
           room.currentTurnPlayerId = socket.id;
@@ -761,7 +800,7 @@ async function startServer() {
 
       if (room.status === 'playing') {
         player.disconnected = true;
-        io.to(roomCode).emit("gameMessage", `${player.name} has left the game (disconnected).`);
+        handleForfeit(roomCode, player.uid);
       } else {
         room.players = room.players.filter(p => p.id !== socket.id);
         if (room.players.length === 0) {
@@ -782,6 +821,18 @@ async function startServer() {
         if (player) {
           if (room.status === 'playing') {
             player.disconnected = true;
+            player.disconnectTime = Date.now();
+            
+            // Start 3 minute timeout
+            setTimeout(() => {
+              const r = rooms.get(roomCode);
+              if (!r) return;
+              const p = r.players.find(pl => pl.uid === player.uid);
+              // If still disconnected after 3 minutes and game still playing
+              if (p && p.disconnected && r.status === 'playing') {
+                handleForfeit(roomCode, p.uid);
+              }
+            }, 3 * 60 * 1000);
           } else {
             room.players = room.players.filter(p => p.id !== socket.id);
             if (room.players.length === 0) rooms.delete(roomCode);
